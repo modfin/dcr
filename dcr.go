@@ -89,7 +89,7 @@ func completer()(*readline.PrefixCompleter){
 		readline.PcItem("stop", services),
 		readline.PcItem("top", services),
 		readline.PcItem("unpause", services),
-		readline.PcItem("up", readline.PcItem("--build", services), services),
+		readline.PcItem("up", services),
 		readline.PcItem("version"),
 		readline.PcItem("help"),
 		readline.PcItem("exit"),
