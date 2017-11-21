@@ -23,8 +23,11 @@ var (
 	app = kingpin.New("dcr", "A repl for docker compose").Author("Rasmus Holm")
 	file = app.Flag("file", "Path to docker compose file, if not provided dcr will travers upwards looking for docker-compose.yml").Short('f').String()
 	env = app.Flag("env", "Envioriment file for docker compose context, if not provided dcr will try to use .env in the same location as docker-compose").Short('e').String()
+	printComplete = app.Flag("complet-next", "Get command compleation").Bool()
+	fish = app.Flag("fish", "Get auto compleation for fish").Bool()
 	ls = app.Flag("list", "List all avalible docker compose projects").Short('l').Bool()
 	repo = app.Arg("compose alias", "The name of the workspace for quick access").String()
+	inargs = app.Arg("docker-compose command", "The input commant to docker compose").Strings()
 
 
 	composeObj map[string]interface{}
@@ -61,6 +64,7 @@ func completer()(*readline.PrefixCompleter){
 
 	return readline.NewPrefixCompleter(
 		readline.PcItem("alias"),
+		readline.PcItem("services"),
 		readline.PcItem("reload"),
 
 		readline.PcItem("build", services),
@@ -111,6 +115,18 @@ func main(){
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
 
+	if *fish {
+		fmt.Println(`#Put this in ~/.config/fish/completions or /usr/share/fish/vendor_completions.d
+function __fish_get_dcr_command
+  set cmd (commandline -opc)
+  eval $cmd --complet-next
+end
+complete -f -c dcr -a "(__fish_get_dcr_command)"`)
+		return
+	}
+
+
+
 	var composeFile string
 	var basePath string
 	var name string
@@ -125,16 +141,19 @@ func main(){
 	confDir := u.HomeDir + "/.config/dcr"
 	err = exec.Command("mkdir", "-p", confDir).Run()
 
-
-	if *ls {
-		listProjects(confDir)
-		return
-	}
-
-
 	if err != nil {
 		log.Fatal(confDir, err)
 	}
+
+	if *ls {
+		listProjects(confDir, true)
+		return
+	}
+	if (len(os.Args[1:]) == 1  && *printComplete ){
+		listProjects(confDir, false)
+		return
+	}
+
 
 	if *repo != "" {
 		name = *repo
@@ -188,8 +207,13 @@ func main(){
 
 	load(name, confDir)
 
-	for {
+	if len(*inargs) > 0 || *printComplete {
+		runCommand(*inargs, confDir,name,composeFile)
+		return
+	}
 
+	// Run REPL
+	for {
 		line, err := linereader.Readline()
 		if err == readline.ErrInterrupt {
 			if len(line) == 0 {
@@ -205,26 +229,51 @@ func main(){
 
 		args := strings.Split(strings.Trim(line, "\n"), " ")
 
-		switch args[0] {
-		case "":
-			continue
-		case "alias":
+		runCommand(args, confDir, name, composeFile)
 
-			if len(args) != 2{
-				fmt.Println("Error, alias need exactly one parameter to be used as the alias for the compose file")
-			}
+	}
+}
 
-			os.Symlink(confDir+"/" + name + ".history", confDir+"/" + args[1] + ".history")
-			os.Symlink(confDir+"/" + name + ".path", confDir+"/" + args[1] + ".path")
-			name = args[1]
-			fallthrough
-		case "reload":
-			load(name, confDir)
-		case "exit":
-			os.Exit(0)
-		case "help":
 
-			fmt.Println(`REPL:
+func runCommand(args []string, confDir string, name string, composeFile string){
+
+	if *printComplete {
+		cpl := completer()
+		soFar := strings.Join(args, " ") + " "
+		newLine, _ := cpl.Do([]rune(soFar), len(soFar))
+		for _, l := range newLine{
+			fmt.Println(strings.TrimSpace(string(l)))
+		}
+		return
+	}
+
+	switch args[0] {
+	case "":
+		return
+	case "alias":
+
+		if len(args) != 2{
+			fmt.Println("Error, alias need exactly one parameter to be used as the alias for the compose file")
+		}
+
+		os.Symlink(confDir+"/" + name + ".history", confDir+"/" + args[1] + ".history")
+		os.Symlink(confDir+"/" + name + ".path", confDir+"/" + args[1] + ".path")
+		name = args[1]
+		fallthrough
+	case "reload":
+		load(name, confDir)
+	case "exit":
+		os.Exit(0)
+	case "services":
+		arr := listServices()("")
+		for _, s := range arr{
+			fmt.Println(s)
+		}
+
+
+	case "help":
+
+		fmt.Println(`REPL:
 Wrapps docker compose and and has a few extra commands
 
 Commands:
@@ -232,31 +281,28 @@ Commands:
   reload             Reloads docker compose
 
 Docker Compose:`)
-			fallthrough
-		default:
+		fallthrough
+	default:
 
-			envBytes, err := ioutil.ReadFile(*env)
-			if err != nil{
-				envBytes = []byte("DCR=TRUE")
-			}
-
-			execArgs := append([]string{string(envBytes), "docker-compose",  "-f", composeFile}, args...)
-			cmd := exec.Command("env", execArgs... )
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			cmd.Stdin = os.Stdin
-			err = cmd.Run()
-			if err != nil {
-				fmt.Println("ERROR", err)
-				return
-			}
+		envBytes, err := ioutil.ReadFile(*env)
+		if err != nil{
+			envBytes = []byte("DCR=TRUE")
 		}
 
+		execArgs := append([]string{string(envBytes), "docker-compose",  "-f", composeFile}, args...)
+		cmd := exec.Command("env", execArgs... )
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+		err = cmd.Run()
+		if err != nil {
+			fmt.Println("ERROR", err)
+			return
+		}
 	}
 }
 
-
-func listProjects(confDir string){
+func listProjects(confDir string, full bool){
 
 	abs ,err := filepath.Abs(confDir)
 	if err != nil {
@@ -304,8 +350,11 @@ func listProjects(confDir string){
 
 	for i, name := range names{
 		fmt.Print(name)
-		fmt.Print(strings.Repeat(" ", maxLen- len(name) + 4))
-		fmt.Println(links[i])
+		if full {
+			fmt.Print(strings.Repeat(" ", maxLen - len(name) + 4))
+			fmt.Print(links[i])
+		}
+		fmt.Println()
 	}
 
 }
