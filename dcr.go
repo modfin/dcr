@@ -89,7 +89,7 @@ func completer()(*readline.PrefixCompleter){
 		readline.PcItem("stop", services),
 		readline.PcItem("top", services),
 		readline.PcItem("unpause", services),
-		readline.PcItem("up", services),
+		readline.PcItem("up", readline.PcItem("--build", services), services),
 		readline.PcItem("version"),
 		readline.PcItem("help"),
 		readline.PcItem("exit"),
@@ -150,12 +150,13 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 		return
 	}
 	if (len(os.Args[1:]) == 1  && *printComplete ){
+		fmt.Println(".")
 		listProjects(confDir, false)
 		return
 	}
 
 
-	if *repo != "" {
+	if *repo != "" && *repo != "." {
 		name = *repo
 		in, err := ioutil.ReadFile(confDir + "/" + name + ".path")
 		if err != nil {
