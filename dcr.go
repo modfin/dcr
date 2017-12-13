@@ -34,74 +34,101 @@ var (
 	linereader *readline.Instance
 )
 
-func listServices() func(string) []string {
-	return func(line string) []string {
-		s := getServices()
-		sort.Strings(s)
-		return s ;
+
+
+
+
+type ComposeCompleter struct{}
+
+var composeCompleter *ComposeCompleter = new(ComposeCompleter)
+
+func (ec ComposeCompleter) Do(line []rune, pos int) (suggest [][]rune, retPos int) {
+	services := getServices()
+	comp := map[string][]string{
+		"alias": nil,
+		"services": nil,
+		"reload": nil,
+		"help": nil,
+		"version": nil,
+		"exit": nil,
+		"build": services,
+		"bundle": nil,
+		"config": nil,
+		"create": services,
+		"down": nil,
+		"events": services,
+		"exec": services,
+		"kill": services,
+		"logs": services,
+		"pause": services,
+		"port": services,
+		"ps": services,
+		"pull": services,
+		"push": services,
+		"restart": services,
+		"rm": services,
+		"run": services,
+		"scale": services,
+		"start": services,
+		"stop": services,
+		"top": services,
+		"unpause": services,
+		"up": services,
 	}
+
+
+	str := string(line)
+	parts := strings.Split(str, " ")
+	suggest = [][]rune{}
+
+	if len(parts) == 0 {
+		parts = []string{""}
+	}
+
+	if len(parts) == 1{
+
+		part := parts[0]
+		retPos = len(part)
+		for alt := range comp {
+
+			if strings.HasPrefix(alt, part){
+				suggest = append(suggest, []rune(strings.TrimPrefix(alt, part) + " ") )
+			}
+
+		}
+	}
+
+	if len(parts) > 1 {
+
+		alts := comp[parts[0]]
+		part := parts[len(parts)-1]
+		retPos = len(part)
+		if alts == nil {
+			return
+		}
+
+
+
+		for _, alt := range alts{
+			if strings.HasPrefix(alt, part){
+				suggest = append(suggest, []rune(strings.TrimPrefix(alt, part) + " ") )
+			}
+		}
+
+
+
+	}
+
+	return
 }
 
-func req(i int, f func() func(string) []string, a *readline.PrefixCompleter) *readline.PrefixCompleter {
-
-	if a == nil {
-		return req(i-1, f, readline.PcItemDynamic(f()) )
-	}
-
-	if i < 1 {
-		return a
-	}
-	return req(i-1, f, readline.PcItemDynamic(f(), a))
-}
-
-func completer()(*readline.PrefixCompleter){
-
-
-	services := req(30, listServices, nil)
-	service := req(1, listServices, nil)
-
-
-
-	return readline.NewPrefixCompleter(
-		readline.PcItem("alias"),
-		readline.PcItem("services"),
-		readline.PcItem("reload"),
-
-		readline.PcItem("build", services),
-		readline.PcItem("bundle"),
-		readline.PcItem("config"),
-		readline.PcItem("create", services),
-		readline.PcItem("down"),
-		readline.PcItem("events", services),
-		readline.PcItem("exec", service),
-		readline.PcItem("kill", services),
-		readline.PcItem("logs", services),
-		readline.PcItem("pause", services),
-		readline.PcItem("port", service),
-		readline.PcItem("ps", services),
-		readline.PcItem("pull", services),
-		readline.PcItem("push", services),
-		readline.PcItem("restart", services),
-		readline.PcItem("rm", services),
-		readline.PcItem("run", service),
-		readline.PcItem("scale", services), // should be// service=num ...
-		readline.PcItem("start", services),
-		readline.PcItem("stop", services),
-		readline.PcItem("top", services),
-		readline.PcItem("unpause", services),
-		readline.PcItem("up", readline.PcItem("-d", services), services),
-		readline.PcItem("version"),
-		readline.PcItem("help"),
-		readline.PcItem("exit"),
-	)
-}
 
 
 func load(name string, confDir string){
 	linereader, _ =readline.NewEx(&readline.Config{
 		Prompt:          "\033[32m[" + name +"]>\033[0m ",
 		HistoryFile:     confDir + "/" + name + ".history",
-		AutoComplete:    completer(),
+		AutoComplete:    composeCompleter, //completer(),
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
 		HistorySearchFold: true,
@@ -188,6 +215,7 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 		name = *repo
 		in, err := ioutil.ReadFile(confDir + "/" + name + ".path")
 		if err != nil {
+
 			log.Fatal(err)
 		}
 		composeFile = strings.TrimSpace(string(in))
@@ -243,6 +271,7 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 
 	// Run REPL
 	for {
+
 		line, err := linereader.Readline()
 		if err == readline.ErrInterrupt {
 			if len(line) == 0 {
@@ -267,8 +296,11 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 func runCommand(args []string, confDir string, name string, composeFile string){
 
 	if *printComplete {
-		cpl := completer()
-		soFar := strings.Join(args, " ") + " "
+		cpl := composeCompleter
+		soFar := strings.Join(args, " ")
+		if len(soFar) > 1{
+			soFar += " "
+		}
 		newLine, _ := cpl.Do([]rune(soFar), len(soFar))
 		for _, l := range newLine{
 			fmt.Println(strings.TrimSpace(string(l)))
@@ -294,7 +326,7 @@ func runCommand(args []string, confDir string, name string, composeFile string){
 	case "exit":
 		os.Exit(0)
 	case "services":
-		arr := listServices()("")
+		arr := getServices()
 		for _, s := range arr{
 			fmt.Println(s)
 		}
@@ -396,6 +428,7 @@ func getServices() []string{
 	for k, _ := range services.(map[interface{}]interface{}) {
 		keys = append(keys, k.(string))
 	}
+	sort.Strings(keys)
 
 	return keys
 }
