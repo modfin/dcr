@@ -21,11 +21,11 @@ import (
 
 var (
 	app = kingpin.New("dcr", "A repl for docker compose").Author("Rasmus Holm")
-	file = app.Flag("file", "Path to docker compose file, if not provided dcr will travers upwards looking for docker-compose.yml").Short('f').String()
-	env = app.Flag("env", "Envioriment file for docker compose context, if not provided dcr will try to use .env in the same location as docker-compose").Short('e').String()
-	printComplete = app.Flag("complet-next", "Get command compleation").Bool()
+	file = app.Flag("file", "Path to docker compose file, if not provided dcr will travers upwards looking for docker-compose.yml").String()
+	env = app.Flag("env", "Envioriment file for docker compose context, if not provided dcr will try to use .env in the same location as docker-compose").String()
+	printComplete = app.Flag("complet-next", "Get command compleation").Hidden().Bool()
 	fish = app.Flag("fish", "Get auto compleation for fish").Bool()
-	ls = app.Flag("list", "List all avalible docker compose projects").Short('l').Bool()
+	ls = app.Flag("list", "List all avalible docker compose projects").Bool()
 	repo = app.Arg("compose alias", "The name of the workspace for quick access").String()
 	inargs = app.Arg("docker-compose command", "The input commant to docker compose").Strings()
 
@@ -89,7 +89,7 @@ func completer()(*readline.PrefixCompleter){
 		readline.PcItem("stop", services),
 		readline.PcItem("top", services),
 		readline.PcItem("unpause", services),
-		readline.PcItem("up", services),
+		readline.PcItem("up", readline.PcItem("-d", services), services),
 		readline.PcItem("version"),
 		readline.PcItem("help"),
 		readline.PcItem("exit"),
@@ -112,7 +112,35 @@ func load(name string, confDir string){
 
 
 func main(){
-	kingpin.MustParse(app.Parse(os.Args[1:]))
+
+
+	rawargs := os.Args[1:]
+	cleanedargs := []string{}
+	composeCommand := []string{}
+	hasRepo := false
+	for _, arg := range rawargs{
+		switch strings.Split(arg, "=")[0] {
+		case "--complet-next": fallthrough
+		case "--file": fallthrough
+		case "--env": fallthrough
+		case "--fish": fallthrough
+		case "--list": fallthrough
+		case "--help":
+			cleanedargs = append(cleanedargs, arg)
+			continue
+		}
+
+		if !hasRepo && !strings.HasPrefix(arg, "--"){
+			hasRepo = true
+			cleanedargs = append(cleanedargs, arg)
+
+		}else{
+			composeCommand = append(composeCommand, arg)
+		}
+
+	}
+	kingpin.MustParse(app.Parse(cleanedargs))
+	inargs = &composeCommand
 
 
 	if *fish {
