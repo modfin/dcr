@@ -40,41 +40,63 @@ var (
 
 type ComposeCompleter struct{}
 
+type compCmd struct{
+	children []string
+	flags []string
+	noneRecursive bool
+}
+
 var composeCompleter *ComposeCompleter = new(ComposeCompleter)
 
 func (ec ComposeCompleter) Do(line []rune, pos int) (suggest [][]rune, retPos int) {
 	services := getServices()
-	comp := map[string][]string{
-		"alias": nil,
-		"services": nil,
-		"reload": nil,
-		"help": nil,
-		"version": nil,
-		"exit": nil,
-		"build": services,
-		"bundle": nil,
-		"config": nil,
-		"create": services,
-		"down": nil,
-		"events": services,
-		"exec": services,
-		"kill": services,
-		"logs": services,
-		"pause": services,
-		"port": services,
-		"ps": services,
-		"pull": services,
-		"push": services,
-		"restart": services,
-		"rm": services,
-		"run": services,
-		"scale": services,
-		"start": services,
-		"stop": services,
-		"top": services,
-		"unpause": services,
-		"up": services,
+
+	scaleServices := getServices()
+	for i := range scaleServices{
+		scaleServices[i] = scaleServices[i] + "="
 	}
+
+	comp := map[string]compCmd{
+		"alias": {},
+		"services": {},
+		"reload": {},
+		"help": {},
+		"version": {},
+		"exit": {},
+		"build": {children:services, 		flags:[]string{"--force-rm", "--no-cache", "--pull"}},
+		"bundle": {											flags:[]string{"--push-images", "--output"}},
+		"config": {											flags:[]string{"--quiet", "--services"}},
+		"create": {children:services, 	flags:[]string{"--force-recreate", "--no-recreate", "--no-build", "--build"}},
+		"down": {												flags:[]string{"--rmi", "--volumes", "--remove-orphans"}},
+		"events": {children:services, 	flags:[]string{"--json"}},
+		"exec": {children:services, 	  flags:[]string{"-d", "--privileged", "--user", "-T", "--index="}, noneRecursive:true,},
+		"kill": {children:services, 		flags:[]string{"-s"}},
+		"logs": {children:services, 		flags:[]string{"--no-color", "--follow", "--timestamps", "--tail="}},
+		"pause": {children:services},
+		"port": {children:services, 		flags:[]string{"--protocol=", "--index="}},
+		"ps": {children:services, 			flags:[]string{"-q"}},
+		"pull": {children:services, 		flags:[]string{"--ignore-pull-failures"}},
+		"push": {children:services, 		flags:[]string{"--ignore-push-failures"}},
+		"restart": {children:services, 	flags:[]string{"--timeout"}},
+		"rm": {children:services, 			flags:[]string{"--timeout", "-v", "--all"}},
+		"run": {children:services, 			flags:[]string{
+			"-d", "--name", "--entrypoint", "-e", "--user=",
+			"--no-deps", "--rm", "--publish=", "--service-ports",
+			"-T", "--workdir=",
+		}},
+		"scale": {children:scaleServices, 		flags:[]string{"--timeout"}},
+		"start": {children:services},
+		"stop": {children:services, 		flags:[]string{"--timeout"}},
+		"top": {children:services},
+		"unpause": {children:services, 	flags:[]string{"--rmi"}},
+		"up": {children:services, 			flags:[]string{
+			"-d", "--no-color", "--no-deps", "--force-recreate",
+			"--no-recreate", "--no-build", "--build", "--abort-on-container-exit",
+			"--timeout", "--remove-orphans",
+		}},
+	}
+
+
 
 
 	str := string(line)
@@ -85,7 +107,7 @@ func (ec ComposeCompleter) Do(line []rune, pos int) (suggest [][]rune, retPos in
 		parts = []string{""}
 	}
 
-	if len(parts) == 1{
+	if len(parts) == 1 {
 
 		part := parts[0]
 		retPos = len(part)
@@ -100,18 +122,35 @@ func (ec ComposeCompleter) Do(line []rune, pos int) (suggest [][]rune, retPos in
 
 	if len(parts) > 1 {
 
-		alts := comp[parts[0]]
+		compCmd := comp[parts[0]]
 		part := parts[len(parts)-1]
 		retPos = len(part)
-		if alts == nil {
+		if compCmd.children == nil {
 			return
 		}
 
+		if len(parts) == 2 || strings.HasPrefix(parts[len(parts)-2], "-") {
+			for _, flag := range compCmd.flags {
+
+				if strings.HasPrefix(flag, part) {
+					suffix := " "
+					if strings.HasSuffix(flag, "=") {
+						suffix = ""
+					}
+					suggest = append(suggest, []rune(strings.TrimPrefix(flag, part) + suffix))
+				}
+			}
+
+		}
 
 
-		for _, alt := range alts{
+		for _, alt := range compCmd.children{
 			if strings.HasPrefix(alt, part){
-				suggest = append(suggest, []rune(strings.TrimPrefix(alt, part) + " ") )
+				suffix := " "
+				if strings.HasSuffix(alt, "="){
+					suffix = ""
+				}
+				suggest = append(suggest, []rune(strings.TrimPrefix(alt, part) + suffix) )
 			}
 		}
 
@@ -128,7 +167,7 @@ func load(name string, confDir string){
 	linereader, _ =readline.NewEx(&readline.Config{
 		Prompt:          "\033[32m[" + name +"]>\033[0m ",
 		HistoryFile:     confDir + "/" + name + ".history",
-		AutoComplete:    composeCompleter, //completer(),
+		AutoComplete:    composeCompleter,
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
 		HistorySearchFold: true,
