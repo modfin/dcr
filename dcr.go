@@ -32,6 +32,9 @@ var (
 
 	composeObj map[string]interface{}
 	linereader *readline.Instance
+	groupObj map[string]interface{}
+	groupSupport = true;
+
 )
 
 
@@ -44,6 +47,9 @@ var composeCompleter *ComposeCompleter = new(ComposeCompleter)
 
 func (ec ComposeCompleter) Do(line []rune, pos int) (suggest [][]rune, retPos int) {
 	services := getServices()
+	if groupSupport {
+		services = getGroups(services)
+	}
 	comp := map[string][]string{
 		"alias": nil,
 		"services": nil,
@@ -183,6 +189,7 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 
 
 	var composeFile string
+	var groupFile string
 	var basePath string
 	var name string
 	var err error
@@ -220,14 +227,32 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 		}
 		composeFile = strings.TrimSpace(string(in))
 
+		in2, err := ioutil.ReadFile(confDir + "/" + name + ".dcrgroups.path")
+		if err != nil {
+			groupSupport = false;
+		} else {
+			groupFile = strings.TrimSpace(string(in2))
+		}
+
 	}else if *file == ""{
-		composeFile = findFile(".")
+		composeFile = findFile(".", "docker-compose.yml")
 		pathParts := strings.Split(composeFile, "/")
 		name = pathParts[len(pathParts)-2]
 		err = ioutil.WriteFile(confDir + "/" + name + ".path", []byte(composeFile), 0644)
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		groupFile = findFile(".", ".dcrgroups")
+		if groupSupport {
+			pathParts1 := strings.Split(groupFile, "/")
+			name = pathParts1[len(pathParts1)-2]
+			err = ioutil.WriteFile(confDir + "/" + name + ".dcrgroups.path", []byte(groupFile), 0644)
+			if err != nil {
+				fmt.Println("WriteFile Error", err)
+			}
+		}
+
 	}else{
 		composeFile, err = filepath.Abs(*file)
 		if err != nil {
@@ -239,9 +264,27 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		groupFile, err = filepath.Abs(*file)
+		if err != nil {
+			groupSupport = false;
+
+		}
+		pathParts1 := strings.Split(groupFile, "/")
+		name = pathParts1[len(pathParts1)-2]
+		err = ioutil.WriteFile(confDir + "/" + name + ".dcrgroups.path", []byte(groupFile), 0644)
+		if err != nil {
+			groupSupport = false;
+		}
 	}
 
 	readComposeFile(composeFile)
+	err = readGroupFile(groupFile)
+	if err != nil {
+		fmt.Println("No group support")
+		groupSupport = false;
+	}
+
 
 	parts := strings.Split(composeFile, "/")
 	basePath = strings.Join(parts[:len(parts)-1], "/")
@@ -350,6 +393,21 @@ Docker Compose:`)
 			envBytes = []byte("DCR=TRUE")
 		}
 
+		if groupSupport {
+			for i, arg := range args {
+				services := groupObj["groups"]
+				for k, l := range services.(map[interface{}]interface{}) {
+					if arg == k {
+						args[i] = args[len(args)-1]
+						args = args[:len(args)-1]
+						for _, ss := range l.([]interface{}) {
+							args = append(args, ss.(string))
+						}
+					}
+				}
+			}
+		}
+
 		execArgs := append([]string{string(envBytes), "docker-compose",  "-f", composeFile}, args...)
 		cmd := exec.Command("env", execArgs... )
 		cmd.Stdout = os.Stdout
@@ -450,35 +508,82 @@ func readComposeFile(path string){
 }
 
 
-func findFile(dirUri string) string{
+func findFile(dirUri string, fileName string) string{
 
 	abs ,err := filepath.Abs(dirUri)
 	if err != nil {
-		log.Fatal(err)
+		if err != nil {
+			if fileName == ".dcrgroups" {
+				groupSupport = false
+				return "";
+			}
+			log.Fatal(err)
+		}
 	}
 
 	dir, err := os.Open(abs)
 
 	if err != nil {
+		if fileName == ".dcrgroups" {
+			groupSupport = false
+			return "";
+		}
 		log.Fatal(err)
 	}
 	list, err := dir.Readdir(-1)
 	dir.Close()
 	if err != nil {
+		if fileName == ".dcrgroups" {
+			groupSupport = false
+			return "";
+		}
 		log.Fatal(err)
 	}
 
 
 	for _, f := range list {
 
-		if(f.Name() == "docker-compose.yml"){
+		if(f.Name() == fileName){
 			return abs + "/" + f.Name()
 		}
 	}
 
 	if abs == "/" {
-		log.Fatal(errors.New("Could not find a docker-compose.yml"))
+		if fileName == ".dcrgroups" {
+			groupSupport = false
+			return "";
+		}
+		log.Fatal(errors.New("Could not find " + fileName))
 	}
 
-	return findFile(abs + "/..")
+	return findFile(abs + "/..", fileName)
 }
+
+
+// Groups
+
+func getGroups (s []string) []string {
+	services := groupObj["groups"]
+
+	for k, _ := range services.(map[interface{}]interface{}) {
+		s = append(s, k.(string))
+	}
+
+	return s
+}
+
+func readGroupFile(path string) error{
+	yamlFile, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	groupObj = make(map[string]interface{})
+
+	err = yaml.Unmarshal(yamlFile, &groupObj)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
