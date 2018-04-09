@@ -362,6 +362,7 @@ func runCommand(args []string, confDir string, name string, composeFile string){
 
 		os.Symlink(confDir+"/" + name + ".history", confDir+"/" + args[1] + ".history")
 		os.Symlink(confDir+"/" + name + ".path", confDir+"/" + args[1] + ".path")
+		os.Symlink(confDir+"/" + name + ".dcrgroups.path", confDir+"/" + args[1] + ".dcrgroups.path")
 		name = args[1]
 		fallthrough
 	case "reload":
