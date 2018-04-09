@@ -21,153 +21,88 @@ import (
 
 var (
 	app = kingpin.New("dcr", "A repl for docker compose").Author("Rasmus Holm")
-	file = app.Flag("file", "Path to docker compose file, if not provided dcr will travers upwards looking for docker-compose.yml").String()
-	env = app.Flag("env", "Envioriment file for docker compose context, if not provided dcr will try to use .env in the same location as docker-compose").String()
-	printComplete = app.Flag("complet-next", "Get command compleation").Hidden().Bool()
-	fish = app.Flag("fish", "Get auto compleation for fish").Bool()
-	ls = app.Flag("list", "List all avalible docker compose projects").Bool()
+	file = app.Flag("file", "Path to docker compose file, if not provided dcr will travers upwards looking for docker-compose.yml").Short('f').String()
+	env = app.Flag("env", "Envioriment file for docker compose context, if not provided dcr will try to use .env in the same location as docker-compose").Short('e').String()
+	ls = app.Flag("list", "List all avalible docker compose projects").Short('l').Bool()
 	repo = app.Arg("compose alias", "The name of the workspace for quick access").String()
-	inargs = app.Arg("docker-compose command", "The input commant to docker compose").Strings()
 
 
 	composeObj map[string]interface{}
+	groupObj map[string]interface{}
 	linereader *readline.Instance
+	groupSupport = true;
 )
 
-
-
-
-
-type ComposeCompleter struct{}
-
-type compCmd struct{
-	children []string
-	flags []string
-	noneRecursive bool
+func listServices() func(string) []string {
+	return func(line string) []string {
+		s := getServices()
+		if groupSupport {
+			s = getGroups(s)
+		}
+		sort.Strings(s)
+		return s ;
+	}
 }
 
-var composeCompleter *ComposeCompleter = new(ComposeCompleter)
+func req(i int, f func() func(string) []string, a *readline.PrefixCompleter) *readline.PrefixCompleter {
 
-func (ec ComposeCompleter) Do(line []rune, pos int) (suggest [][]rune, retPos int) {
-	services := getServices()
-
-	scaleServices := getServices()
-	for i := range scaleServices{
-		scaleServices[i] = scaleServices[i] + "="
+	if a == nil {
+		return req(i-1, f, readline.PcItemDynamic(f()) )
 	}
 
-	comp := map[string]compCmd{
-		"alias": {},
-		"services": {},
-		"reload": {},
-		"help": {},
-		"version": {},
-		"exit": {},
-		"build": {children:services, 		flags:[]string{"--force-rm", "--no-cache", "--pull"}},
-		"bundle": {											flags:[]string{"--push-images", "--output"}},
-		"config": {											flags:[]string{"--quiet", "--services"}},
-		"create": {children:services, 	flags:[]string{"--force-recreate", "--no-recreate", "--no-build", "--build"}},
-		"down": {												flags:[]string{"--rmi", "--volumes", "--remove-orphans"}},
-		"events": {children:services, 	flags:[]string{"--json"}},
-		"exec": {children:services, 	  flags:[]string{"-d", "--privileged", "--user", "-T", "--index="}, noneRecursive:true,},
-		"kill": {children:services, 		flags:[]string{"-s"}},
-		"logs": {children:services, 		flags:[]string{"--no-color", "--follow", "--timestamps", "--tail="}},
-		"pause": {children:services},
-		"port": {children:services, 		flags:[]string{"--protocol=", "--index="}},
-		"ps": {children:services, 			flags:[]string{"-q"}},
-		"pull": {children:services, 		flags:[]string{"--ignore-pull-failures"}},
-		"push": {children:services, 		flags:[]string{"--ignore-push-failures"}},
-		"restart": {children:services, 	flags:[]string{"--timeout"}},
-		"rm": {children:services, 			flags:[]string{"--timeout", "-v", "--all"}},
-		"run": {children:services, 			flags:[]string{
-			"-d", "--name", "--entrypoint", "-e", "--user=",
-			"--no-deps", "--rm", "--publish=", "--service-ports",
-			"-T", "--workdir=",
-		}},
-		"scale": {children:scaleServices, 		flags:[]string{"--timeout"}},
-		"start": {children:services},
-		"stop": {children:services, 		flags:[]string{"--timeout"}},
-		"top": {children:services},
-		"unpause": {children:services, 	flags:[]string{"--rmi"}},
-		"up": {children:services, 			flags:[]string{
-			"-d", "--no-color", "--no-deps", "--force-recreate",
-			"--no-recreate", "--no-build", "--build", "--abort-on-container-exit",
-			"--timeout", "--remove-orphans",
-		}},
+	if i < 1 {
+		return a
 	}
-
-
-
-
-	str := string(line)
-	parts := strings.Split(str, " ")
-	suggest = [][]rune{}
-
-	if len(parts) == 0 {
-		parts = []string{""}
-	}
-
-	if len(parts) == 1 {
-
-		part := parts[0]
-		retPos = len(part)
-		for alt := range comp {
-
-			if strings.HasPrefix(alt, part){
-				suggest = append(suggest, []rune(strings.TrimPrefix(alt, part) + " ") )
-			}
-
-		}
-	}
-
-	if len(parts) > 1 {
-
-		compCmd := comp[parts[0]]
-		part := parts[len(parts)-1]
-		retPos = len(part)
-		if compCmd.children == nil {
-			return
-		}
-
-		if len(parts) == 2 || strings.HasPrefix(parts[len(parts)-2], "-") {
-			for _, flag := range compCmd.flags {
-
-				if strings.HasPrefix(flag, part) {
-					suffix := " "
-					if strings.HasSuffix(flag, "=") {
-						suffix = ""
-					}
-					suggest = append(suggest, []rune(strings.TrimPrefix(flag, part) + suffix))
-				}
-			}
-
-		}
-
-
-		for _, alt := range compCmd.children{
-			if strings.HasPrefix(alt, part){
-				suffix := " "
-				if strings.HasSuffix(alt, "="){
-					suffix = ""
-				}
-				suggest = append(suggest, []rune(strings.TrimPrefix(alt, part) + suffix) )
-			}
-		}
-
-
-
-	}
-
-	return
+	return req(i-1, f, readline.PcItemDynamic(f(), a))
 }
 
+func completer()(*readline.PrefixCompleter){
+
+
+	services := req(30, listServices, nil)
+	service := req(1, listServices, nil)
+
+
+
+	return readline.NewPrefixCompleter(
+		readline.PcItem("alias"),
+		readline.PcItem("reload"),
+
+		readline.PcItem("build", services),
+		readline.PcItem("bundle"),
+		readline.PcItem("config"),
+		readline.PcItem("create", services),
+		readline.PcItem("down"),
+		readline.PcItem("events", services),
+		readline.PcItem("exec", service),
+		readline.PcItem("kill", services),
+		readline.PcItem("logs", services),
+		readline.PcItem("pause", services),
+		readline.PcItem("port", service),
+		readline.PcItem("ps", services),
+		readline.PcItem("pull", services),
+		readline.PcItem("push", services),
+		readline.PcItem("restart", services),
+		readline.PcItem("rm", services),
+		readline.PcItem("run", service),
+		readline.PcItem("scale", services), // should be// service=num ...
+		readline.PcItem("start", services),
+		readline.PcItem("stop", services),
+		readline.PcItem("top", services),
+		readline.PcItem("unpause", services),
+		readline.PcItem("up", services),
+		readline.PcItem("version"),
+		readline.PcItem("help"),
+		readline.PcItem("exit"),
+	)
+}
 
 
 func load(name string, confDir string){
 	linereader, _ =readline.NewEx(&readline.Config{
 		Prompt:          "\033[32m[" + name +"]>\033[0m ",
 		HistoryFile:     confDir + "/" + name + ".history",
-		AutoComplete:    composeCompleter,
+		AutoComplete:    completer(),
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
 		HistorySearchFold: true,
@@ -178,50 +113,11 @@ func load(name string, confDir string){
 
 
 func main(){
-
-
-	rawargs := os.Args[1:]
-	cleanedargs := []string{}
-	composeCommand := []string{}
-	hasRepo := false
-	for _, arg := range rawargs{
-		switch strings.Split(arg, "=")[0] {
-		case "--complet-next": fallthrough
-		case "--file": fallthrough
-		case "--env": fallthrough
-		case "--fish": fallthrough
-		case "--list": fallthrough
-		case "--help":
-			cleanedargs = append(cleanedargs, arg)
-			continue
-		}
-
-		if !hasRepo && !strings.HasPrefix(arg, "--"){
-			hasRepo = true
-			cleanedargs = append(cleanedargs, arg)
-
-		}else{
-			composeCommand = append(composeCommand, arg)
-		}
-
-	}
-	kingpin.MustParse(app.Parse(cleanedargs))
-	inargs = &composeCommand
-
-
-	if *fish {
-		fmt.Println(`#Put this in ~/.config/fish/completions or /usr/share/fish/vendor_completions.d
-function __fish_get_dcr_command
-  set cmd (commandline -opc)
-  eval $cmd --complet-next
-end
-complete -f -c dcr -a "(__fish_get_dcr_command)"`)
-		return
-	}
-
+	kingpin.MustParse(app.Parse(os.Args[1:]))
 
 
 	var composeFile string
+	var groupFile string
 	var basePath string
 	var name string
 	var err error
@@ -235,38 +131,49 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 	confDir := u.HomeDir + "/.config/dcr"
 	err = exec.Command("mkdir", "-p", confDir).Run()
 
+
+	if *ls {
+		listProjects(confDir)
+		return
+	}
+
+
 	if err != nil {
 		log.Fatal(confDir, err)
 	}
 
-	if *ls {
-		listProjects(confDir, true)
-		return
-	}
-	if (len(os.Args[1:]) == 1  && *printComplete ){
-		fmt.Println(".")
-		listProjects(confDir, false)
-		return
-	}
-
-
-	if *repo != "" && *repo != "." {
+	if *repo != "" {
 		name = *repo
 		in, err := ioutil.ReadFile(confDir + "/" + name + ".path")
 		if err != nil {
-
 			log.Fatal(err)
+		}
+		in2, err := ioutil.ReadFile(confDir + "/" + name + ".dcrgroups.path")
+		if err != nil {
+			groupSupport = false;
+		} else {
+			groupFile = strings.TrimSpace(string(in2))
 		}
 		composeFile = strings.TrimSpace(string(in))
 
 	}else if *file == ""{
-		composeFile = findFile(".")
+		composeFile = findFile(".", "docker-compose.yml")
 		pathParts := strings.Split(composeFile, "/")
 		name = pathParts[len(pathParts)-2]
 		err = ioutil.WriteFile(confDir + "/" + name + ".path", []byte(composeFile), 0644)
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		groupFile = findFile(".", ".dcrgroups")
+		pathParts1 := strings.Split(groupFile, "/")
+		name = pathParts1[len(pathParts1)-2]
+		err = ioutil.WriteFile(confDir + "/" + name + ".dcrgroups.path", []byte(groupFile), 0644)
+		if err != nil {
+			groupSupport = false;
+		}
+
+
 	}else{
 		composeFile, err = filepath.Abs(*file)
 		if err != nil {
@@ -278,9 +185,27 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 		if err != nil {
 			log.Fatal(err)
 		}
+
+
+		groupFile, err = filepath.Abs(*file)
+		if err != nil {
+			groupSupport = false;
+
+		}
+		pathParts1 := strings.Split(groupFile, "/")
+		name = pathParts1[len(pathParts1)-2]
+		err = ioutil.WriteFile(confDir + "/" + name + ".dcrgroups.path", []byte(groupFile), 0644)
+		if err != nil {
+			groupSupport = false;
+		}
 	}
 
 	readComposeFile(composeFile)
+	err = readGroupFile(groupFile)
+	if err != nil {
+		fmt.Println("No group support")
+		groupSupport = false;
+	}
 
 	parts := strings.Split(composeFile, "/")
 	basePath = strings.Join(parts[:len(parts)-1], "/")
@@ -303,12 +228,6 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 
 	load(name, confDir)
 
-	if len(*inargs) > 0 || *printComplete {
-		runCommand(*inargs, confDir,name,composeFile)
-		return
-	}
-
-	// Run REPL
 	for {
 
 		line, err := linereader.Readline()
@@ -326,54 +245,27 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 
 		args := strings.Split(strings.Trim(line, "\n"), " ")
 
-		runCommand(args, confDir, name, composeFile)
+		switch args[0] {
+		case "":
+			continue
+		case "alias":
 
-	}
-}
+			if len(args) != 2{
+				fmt.Println("Error, alias need exactly one parameter to be used as the alias for the compose file")
+			}
 
+			os.Symlink(confDir+"/" + name + ".history", confDir+"/" + args[1] + ".history")
+			os.Symlink(confDir+"/" + name + ".path", confDir+"/" + args[1] + ".path")
+			os.Symlink(confDir+"/" + name + ".dcrgroups.path", confDir+"/" + args[1] + ".dcrgroups.path")
+			name = args[1]
+			fallthrough
+		case "reload":
+			load(name, confDir)
+		case "exit":
+			os.Exit(0)
+		case "help":
 
-func runCommand(args []string, confDir string, name string, composeFile string){
-
-	if *printComplete {
-		cpl := composeCompleter
-		soFar := strings.Join(args, " ")
-		if len(soFar) > 1{
-			soFar += " "
-		}
-		newLine, _ := cpl.Do([]rune(soFar), len(soFar))
-		for _, l := range newLine{
-			fmt.Println(strings.TrimSpace(string(l)))
-		}
-		return
-	}
-
-	switch args[0] {
-	case "":
-		return
-	case "alias":
-
-		if len(args) != 2{
-			fmt.Println("Error, alias need exactly one parameter to be used as the alias for the compose file")
-		}
-
-		os.Symlink(confDir+"/" + name + ".history", confDir+"/" + args[1] + ".history")
-		os.Symlink(confDir+"/" + name + ".path", confDir+"/" + args[1] + ".path")
-		name = args[1]
-		fallthrough
-	case "reload":
-		load(name, confDir)
-	case "exit":
-		os.Exit(0)
-	case "services":
-		arr := getServices()
-		for _, s := range arr{
-			fmt.Println(s)
-		}
-
-
-	case "help":
-
-		fmt.Println(`REPL:
+			fmt.Println(`REPL:
 Wrapps docker compose and and has a few extra commands
 
 Commands:
@@ -381,28 +273,46 @@ Commands:
   reload             Reloads docker compose
 
 Docker Compose:`)
-		fallthrough
-	default:
+			fallthrough
+		default:
 
-		envBytes, err := ioutil.ReadFile(*env)
-		if err != nil{
-			envBytes = []byte("DCR=TRUE")
+			envBytes, err := ioutil.ReadFile(*env)
+			if err != nil{
+				envBytes = []byte("DCR=TRUE")
+			}
+
+			if groupSupport {
+				for i, arg := range args {
+					services := groupObj["groups"]
+					for k, l := range services.(map[interface{}]interface{}) {
+						if arg == k {
+							args[i] = args[len(args)-1]
+							args = args[:len(args)-1]
+							for _, ss := range l.([]interface{}) {
+								args = append(args, ss.(string))
+							}
+						}
+					}
+				}
+			}
+
+			execArgs := append([]string{string(envBytes), "docker-compose",  "-f", composeFile}, args...)
+			cmd := exec.Command("env", execArgs... )
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Stdin = os.Stdin
+			err = cmd.Run()
+			if err != nil {
+				fmt.Println("ERROR", err)
+				return
+			}
 		}
 
-		execArgs := append([]string{string(envBytes), "docker-compose",  "-f", composeFile}, args...)
-		cmd := exec.Command("env", execArgs... )
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Stdin = os.Stdin
-		err = cmd.Run()
-		if err != nil {
-			fmt.Println("ERROR", err)
-			return
-		}
 	}
 }
 
-func listProjects(confDir string, full bool){
+
+func listProjects(confDir string){
 
 	abs ,err := filepath.Abs(confDir)
 	if err != nil {
@@ -450,11 +360,8 @@ func listProjects(confDir string, full bool){
 
 	for i, name := range names{
 		fmt.Print(name)
-		if full {
-			fmt.Print(strings.Repeat(" ", maxLen - len(name) + 4))
-			fmt.Print(links[i])
-		}
-		fmt.Println()
+		fmt.Print(strings.Repeat(" ", maxLen- len(name) + 4))
+		fmt.Println(links[i])
 	}
 
 }
@@ -467,7 +374,6 @@ func getServices() []string{
 	for k, _ := range services.(map[interface{}]interface{}) {
 		keys = append(keys, k.(string))
 	}
-	sort.Strings(keys)
 
 	return keys
 }
@@ -489,7 +395,7 @@ func readComposeFile(path string){
 }
 
 
-func findFile(dirUri string) string{
+func findFile(dirUri string, fileName string) string{
 
 	abs ,err := filepath.Abs(dirUri)
 	if err != nil {
@@ -510,14 +416,45 @@ func findFile(dirUri string) string{
 
 	for _, f := range list {
 
-		if(f.Name() == "docker-compose.yml"){
+		if(f.Name() == fileName){
 			return abs + "/" + f.Name()
 		}
 	}
 
 	if abs == "/" {
-		log.Fatal(errors.New("Could not find a docker-compose.yml"))
+		if fileName == ".dcrgroups" {
+			return "";
+		}
+		log.Fatal(errors.New("Could not find " + fileName))
 	}
 
-	return findFile(abs + "/..")
+	return findFile(abs + "/..", fileName)
 }
+
+// Groups
+
+func getGroups (s []string) []string {
+	services := groupObj["groups"]
+
+	for k, _ := range services.(map[interface{}]interface{}) {
+		s = append(s, k.(string))
+	}
+
+	return s
+}
+
+func readGroupFile(path string) error{
+	yamlFile, err := ioutil.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	groupObj = make(map[string]interface{})
+
+	err = yaml.Unmarshal(yamlFile, &groupObj)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
