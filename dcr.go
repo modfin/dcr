@@ -166,11 +166,13 @@ func main(){
 		}
 
 		groupFile = findFile(".", ".dcrgroups")
-		pathParts1 := strings.Split(groupFile, "/")
-		name = pathParts1[len(pathParts1)-2]
-		err = ioutil.WriteFile(confDir + "/" + name + ".dcrgroups.path", []byte(groupFile), 0644)
-		if err != nil {
-			groupSupport = false;
+		if groupSupport {
+			pathParts1 := strings.Split(groupFile, "/")
+			name = pathParts1[len(pathParts1)-2]
+			err = ioutil.WriteFile(confDir + "/" + name + ".dcrgroups.path", []byte(groupFile), 0644)
+			if err != nil {
+				fmt.Println("WriteFile Error", err)
+			}
 		}
 
 
@@ -399,17 +401,29 @@ func findFile(dirUri string, fileName string) string{
 
 	abs ,err := filepath.Abs(dirUri)
 	if err != nil {
+		if fileName == ".dcrgroups" {
+			groupSupport = false
+			return "";
+		}
 		log.Fatal(err)
 	}
 
 	dir, err := os.Open(abs)
 
 	if err != nil {
+		if fileName == ".dcrgroups" {
+			groupSupport = false
+			return "";
+		}
 		log.Fatal(err)
 	}
 	list, err := dir.Readdir(-1)
 	dir.Close()
 	if err != nil {
+		if fileName == ".dcrgroups" {
+			groupSupport = false
+			return "";
+		}
 		log.Fatal(err)
 	}
 
@@ -423,6 +437,7 @@ func findFile(dirUri string, fileName string) string{
 
 	if abs == "/" {
 		if fileName == ".dcrgroups" {
+			groupSupport = false
 			return "";
 		}
 		log.Fatal(errors.New("Could not find " + fileName))
