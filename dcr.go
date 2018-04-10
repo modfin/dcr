@@ -8,7 +8,6 @@ import (
 	"strings"
 	"log"
 	"path/filepath"
-	"github.com/golang-plus/errors"
 	"io/ioutil"
 	"gopkg.in/yaml.v2"
 	"sort"
@@ -235,7 +234,11 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 		}
 
 	}else if *file == ""{
-		composeFile = findFile(".", "docker-compose.yml")
+		composeFile, err = findFile(".", "docker-compose.yml")
+		if err != nil{
+			log.Fatal("Could not find compose file")
+		}
+
 		pathParts := strings.Split(composeFile, "/")
 		name = pathParts[len(pathParts)-2]
 		err = ioutil.WriteFile(confDir + "/" + name + ".path", []byte(composeFile), 0644)
@@ -243,7 +246,12 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 			log.Fatal(err)
 		}
 
-		groupFile = findFile(".", ".dcrgroups")
+		groupFile, err = findFile(".", ".dcrgroups")
+
+		if err != nil{
+			groupSupport = false
+		}
+
 		if groupSupport {
 			pathParts1 := strings.Split(groupFile, "/")
 			name = pathParts1[len(pathParts1)-2]
@@ -281,7 +289,7 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 	readComposeFile(composeFile)
 	err = readGroupFile(groupFile)
 	if err != nil {
-		fmt.Println("No group support")
+		//fmt.Println("No group support")
 		groupSupport = false;
 	}
 
@@ -454,7 +462,7 @@ func listProjects(confDir string, full bool){
 	sort.Strings(fileNames)
 
 	for _, name := range fileNames {
-		if strings.HasSuffix(name, ".path"){
+		if strings.HasSuffix(name, ".path") && !strings.HasSuffix(name, ".dcrgroups.path"){
 			cleanName := strings.TrimSuffix(name, ".path")
 			link, _ := ioutil.ReadFile(abs + "/" + name)
 			names = append(names, cleanName)
@@ -509,52 +517,34 @@ func readComposeFile(path string){
 }
 
 
-func findFile(dirUri string, fileName string) string{
+func findFile(dirUri string, fileName string) (string, error){
 
-	abs ,err := filepath.Abs(dirUri)
+	abs, err := filepath.Abs(dirUri)
 	if err != nil {
-		if err != nil {
-			if fileName == ".dcrgroups" {
-				groupSupport = false
-				return "";
-			}
-			log.Fatal(err)
-		}
+		return "", err
 	}
 
 	dir, err := os.Open(abs)
 
 	if err != nil {
-		if fileName == ".dcrgroups" {
-			groupSupport = false
-			return "";
-		}
-		log.Fatal(err)
+		return "", err
 	}
 	list, err := dir.Readdir(-1)
 	dir.Close()
 	if err != nil {
-		if fileName == ".dcrgroups" {
-			groupSupport = false
-			return "";
-		}
-		log.Fatal(err)
+		return "", err
 	}
 
 
 	for _, f := range list {
 
 		if(f.Name() == fileName){
-			return abs + "/" + f.Name()
+			return abs + "/" + f.Name(), nil
 		}
 	}
 
 	if abs == "/" {
-		if fileName == ".dcrgroups" {
-			groupSupport = false
-			return "";
-		}
-		log.Fatal(errors.New("Could not find " + fileName))
+		return "", err
 	}
 
 	return findFile(abs + "/..", fileName)
