@@ -248,7 +248,7 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 
 		groupFile, err = findFile(".", ".dcrgroups")
 
-		if err != nil{
+		if err != nil || groupFile == "" {
 			groupSupport = false
 		}
 
