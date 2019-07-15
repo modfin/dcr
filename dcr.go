@@ -239,7 +239,6 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 			log.Fatalf("could not find compose file, error: %v", err)
 		}
 
-		println("yo" + composeFile)
 		pathParts := strings.Split(composeFile, "/")
 		name = pathParts[len(pathParts)-2]
 		err = ioutil.WriteFile(confDir + "/" + name + ".path", []byte(composeFile), 0644)
