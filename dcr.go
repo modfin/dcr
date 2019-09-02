@@ -1,21 +1,21 @@
 package main
 
 import (
-  "gopkg.in/alecthomas/kingpin.v2"
-	"github.com/chzyer/readline"
-	"io"
-	"os"
-	"strings"
-	"log"
-	"path/filepath"
-	"io/ioutil"
-	"gopkg.in/yaml.v2"
-	"sort"
-	"os/exec"
 	"fmt"
-	"syscall"
+	"github.com/chzyer/readline"
+	"gopkg.in/alecthomas/kingpin.v2"
+	"gopkg.in/yaml.v2"
+	"io"
+	"io/ioutil"
+	"log"
+	"os"
+	"os/exec"
 	"os/signal"
 	"os/user"
+	"path/filepath"
+	"sort"
+	"strings"
+	"syscall"
 )
 
 var (
@@ -81,7 +81,6 @@ func (ec ComposeCompleter) Do(line []rune, pos int) (suggest [][]rune, retPos in
 		"up": services,
 	}
 
-
 	str := string(line)
 	parts := strings.Split(str, " ")
 	suggest = [][]rune{}
@@ -91,7 +90,6 @@ func (ec ComposeCompleter) Do(line []rune, pos int) (suggest [][]rune, retPos in
 	}
 
 	if len(parts) == 1{
-
 		part := parts[0]
 		retPos = len(part)
 		for alt := range comp {
@@ -104,24 +102,17 @@ func (ec ComposeCompleter) Do(line []rune, pos int) (suggest [][]rune, retPos in
 	}
 
 	if len(parts) > 1 {
-
 		alts := comp[parts[0]]
 		part := parts[len(parts)-1]
 		retPos = len(part)
 		if alts == nil {
 			return
 		}
-
-
-
 		for _, alt := range alts{
 			if strings.HasPrefix(alt, part){
 				suggest = append(suggest, []rune(strings.TrimPrefix(alt, part) + " ") )
 			}
 		}
-
-
-
 	}
 
 	return
@@ -138,14 +129,11 @@ func load(name string, confDir string){
 		EOFPrompt:       "exit",
 		HistorySearchFold: true,
 	})
-
 }
 
 
 
 func main(){
-
-
 	rawargs := os.Args[1:]
 	cleanedargs := []string{}
 	composeCommand := []string{}
@@ -162,18 +150,15 @@ func main(){
 			continue
 		}
 
-		if !hasRepo && !strings.HasPrefix(arg, "--"){
+		if !hasRepo && !strings.HasPrefix(arg, "--") {
 			hasRepo = true
 			cleanedargs = append(cleanedargs, arg)
-
-		}else{
+		} else {
 			composeCommand = append(composeCommand, arg)
 		}
-
 	}
 	kingpin.MustParse(app.Parse(cleanedargs))
 	inargs = &composeCommand
-
 
 	if *fish {
 		fmt.Println(`#Put this in ~/.config/fish/completions or /usr/share/fish/vendor_completions.d
@@ -417,7 +402,9 @@ Docker Compose:`)
 			}
 		}
 
-		execArgs := append([]string{string(envBytes), "docker-compose",  "-f", composeFile}, args...)
+		execArgs := []string{string(envBytes), "docker-compose",  "-f", composeFile}
+		execArgs = append(execArgs, composeOverrideArgs(composeFile)...)
+		execArgs = append(execArgs, args...)
 		cmd := exec.Command("env", execArgs... )
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -428,6 +415,16 @@ Docker Compose:`)
 			return
 		}
 	}
+}
+
+func composeOverrideArgs(composeFile string) []string {
+	path := strings.Replace(composeFile, ".yaml", ".override.yaml", 1)
+	path = strings.Replace(path, ".yml", ".override.yml", 1)
+	_, err := os.Stat(path)
+	if err == nil {
+		return []string{"-f", path}
+	}
+	return nil
 }
 
 func listProjects(confDir string, full bool){
