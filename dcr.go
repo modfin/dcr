@@ -221,7 +221,7 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 	}else if *file == ""{
 		composeFile, err = findFile(".", "docker-compose.yml")
 		if err != nil{
-			log.Fatal("Could not find compose file")
+			log.Fatalf("could not find compose file, error: %v", err)
 		}
 
 		pathParts := strings.Split(composeFile, "/")
@@ -541,7 +541,7 @@ func findFile(dirUri string, fileName string) (string, error){
 	}
 
 	if abs == "/" {
-		return "", err
+		return "", fmt.Errorf("could not find file '%s', last checked dir '%s'", fileName, dirUri)
 	}
 
 	return findFile(abs + "/..", fileName)
