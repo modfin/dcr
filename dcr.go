@@ -21,7 +21,7 @@ import (
 var (
 	app = kingpin.New("dcr", "A repl for docker compose").Author("Rasmus Holm")
 	file = app.Flag("file", "Path to docker compose file, if not provided dcr will travers upwards looking for docker-compose.yml").String()
-	env = app.Flag("env", "Envioriment file for docker compose context, if not provided dcr will try to use .env in the same location as docker-compose").String()
+	env = app.Flag("env", "Environment file for docker compose context, if not provided dcr will try to use .env in the same location as docker-compose.yml").String()
 	printComplete = app.Flag("complet-next", "Get command compleation").Hidden().Bool()
 	fish = app.Flag("fish", "Get auto compleation for fish").Bool()
 	ls = app.Flag("list", "List all avalible docker compose projects").Bool()
@@ -382,11 +382,6 @@ Docker Compose:`)
 		fallthrough
 	default:
 
-		envBytes, err := ioutil.ReadFile(*env)
-		if err != nil{
-			envBytes = []byte("DCR=TRUE")
-		}
-
 		if groupSupport {
 			for i, arg := range args {
 				services := groupObj["groups"]
@@ -402,14 +397,14 @@ Docker Compose:`)
 			}
 		}
 
-		execArgs := []string{string(envBytes), "docker-compose",  "-f", composeFile}
+		execArgs := []string{"--env-file", *env, "-f", composeFile}
 		execArgs = append(execArgs, composeOverrideArgs(composeFile)...)
 		execArgs = append(execArgs, args...)
-		cmd := exec.Command("env", execArgs... )
+		cmd := exec.Command("docker-compose", execArgs... )
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin
-		err = cmd.Run()
+		err := cmd.Run()
 		if err != nil {
 			fmt.Println("ERROR", err)
 			return
