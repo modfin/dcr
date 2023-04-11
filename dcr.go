@@ -397,10 +397,11 @@ Docker Compose:`)
 			}
 		}
 
-		execArgs := []string{"--env-file", *env, "-f", composeFile}
+		execArgs := []string{"compose"}
+		execArgs = append(execArgs, "-f", composeFile)
 		execArgs = append(execArgs, composeOverrideArgs(composeFile)...)
 		execArgs = append(execArgs, args...)
-		cmd := exec.Command("docker-compose", execArgs... )
+		cmd := exec.Command("docker", execArgs...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin
