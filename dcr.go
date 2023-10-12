@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"syscall"
@@ -387,6 +388,7 @@ Docker Compose:`)
 		}
 
 		execArgs := []string{"compose"}
+		execArgs = append(execArgs, "--project-name", sanitizeProjectName(name))
 		execArgs = append(execArgs, "-f", composeFile)
 		execArgs = append(execArgs, composeOverrideArgs(composeFile)...)
 		execArgs = append(execArgs, args...)
@@ -552,4 +554,18 @@ func readGroupFile(path string) error {
 		return err
 	}
 	return nil
+}
+
+// Project names must contain only lowercase letters, decimal digits, dashes, and underscores, and
+// must begin with a lowercase letter or decimal digit. If the basename of the project directory or
+// current directory violates this constraint, you must use one of the other mechanisms.
+// from: https://docs.docker.com/compose/reference/#use--p-to-specify-a-project-name
+func sanitizeProjectName(name string) string {
+	allowedChars := regexp.MustCompile(`[^a-z0-9_-]+$`)
+	allowedStartChar := regexp.MustCompile(`^[a-z]`)
+	sanitizedName := allowedChars.ReplaceAllString(strings.ToLower(name), "")
+	if len(sanitizedName) > 0 && !allowedStartChar.MatchString(sanitizedName[:1]) {
+		sanitizedName = "project-" + sanitizedName
+	}
+	return sanitizedName
 }
