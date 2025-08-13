@@ -17,3 +17,10 @@
 
 # vscode
 .vscode
+
+# Configs
+.dcr*
+.zdap
+
+# Docker-compose
+docker-compose.y*
