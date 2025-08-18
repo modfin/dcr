@@ -23,7 +23,7 @@ type ActionItemWithType struct {
 	Type        string `yaml:"type"`
 }
 
-type TimedActions struct {
+type ActionGroup struct {
 	Enabled bool                 `yaml:"enabled"`
 	Verbose bool                 `yaml:"verbose"`
 	Filter  string               `yaml:"filter"`

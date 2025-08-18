@@ -10,7 +10,7 @@ type Integrations struct {
 }
 
 type ActionConfig struct {
-	PreStartActions TimedActions          `yaml:"pre-start-actions"`
+	PreStartActions ActionGroup           `yaml:"pre-start-actions"`
 	ActionTemplates map[string]ActionItem `yaml:"action-templates"`
 }
 
@@ -19,7 +19,7 @@ type Zdap struct {
 	Filter                   string                     `yaml:"filter"`
 	IgnoredResources         []string                   `yaml:"ignored-resources"`
 	ResourceNameOverrides    []ZdapResourceNameOverride `yaml:"resource-name-overrides"`
-	PreStartActions          TimedActions               `yaml:"pre-start-actions"`
+	PreStartActions          ActionGroup                `yaml:"pre-start-actions"`
 	ActionTemplates          map[string]ActionItem      `yaml:"action-templates"`
 }
 
