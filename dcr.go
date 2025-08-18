@@ -2,9 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/chzyer/readline"
-	"gopkg.in/alecthomas/kingpin.v2"
-	"gopkg.in/yaml.v2"
 	"io"
 	"io/ioutil"
 	"log"
@@ -17,21 +14,31 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+
+	"github.com/chzyer/readline"
+	"github.com/modfin/dcr/internal/compose"
+	"github.com/modfin/dcr/internal/configs"
+	"github.com/modfin/dcr/internal/groups"
+	"github.com/modfin/dcr/internal/integrations/zdap"
+	"gopkg.in/alecthomas/kingpin.v2"
+	"gopkg.in/yaml.v2"
 )
 
 var (
 	app           = kingpin.New("dcr", "A repl for docker compose").Author("Rasmus Holm")
 	file          = app.Flag("file", "Path to docker compose file, if not provided dcr will travers upwards looking for docker-compose.yml").String()
+	config        = app.Flag("config", "Path to dcr config file, if not provided dcr will look for .dcrconfig in the same location as docker-compose.yml").String()
 	env           = app.Flag("env", "Environment file for docker compose context, if not provided dcr will try to use .env in the same location as docker-compose.yml").String()
 	printComplete = app.Flag("complet-next", "Get command compleation").Hidden().Bool()
 	fish          = app.Flag("fish", "Get auto compleation for fish").Bool()
 	ls            = app.Flag("list", "List all avalible docker compose projects").Bool()
 	repo          = app.Arg("compose alias", "The name of the workspace for quick access").String()
+	zdapFlag      = app.Flag("zdap", "Run zdap integration").Default("false").Bool()
 	inargs        = app.Arg("docker-compose command", "The input commant to docker compose").Strings()
 
-	composeObj   map[string]interface{}
+	composeObj   compose.Compose
 	linereader   *readline.Instance
-	groupObj     map[string]interface{}
+	groupObj     *groups.Groups
 	groupSupport = true
 )
 
@@ -40,9 +47,9 @@ type ComposeCompleter struct{}
 var composeCompleter *ComposeCompleter = new(ComposeCompleter)
 
 func (ec ComposeCompleter) Do(line []rune, pos int) (suggest [][]rune, retPos int) {
-	services := getServices()
+	services := compose.GetServices(composeObj)
 	if groupSupport {
-		services = getGroups(services)
+		services = groups.GetGroups(services, groupObj)
 	}
 	comp := map[string][]string{
 		"alias":    nil,
@@ -141,6 +148,8 @@ func main() {
 			fallthrough
 		case "--list":
 			fallthrough
+		case "--zdap":
+			fallthrough
 		case "--help":
 			cleanedargs = append(cleanedargs, arg)
 			continue
@@ -167,6 +176,7 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 	}
 
 	var composeFile string
+	var configFile string
 	var groupFile string
 	var basePath string
 	var name string
@@ -264,11 +274,33 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 		}
 	}
 
+	if *config != "" {
+		configFile, err = filepath.Abs(*config)
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		configFile, err = findFile(filepath.Dir(composeFile), ".dcrconfig.yaml")
+		if err != nil {
+			configFile = confDir + "/.dcrconfig.yaml"
+			err = os.WriteFile(configFile, []byte(""), 0644)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+	}
+
 	readComposeFile(composeFile)
-	err = readGroupFile(groupFile)
+	groupObj, err = readGroupFile(groupFile)
 	if err != nil {
 		//fmt.Println("No group support")
 		groupSupport = false
+	}
+	argsCopy := make([]string, len(*inargs))
+	copy(argsCopy, *inargs)
+	err = runConfigs(configFile, argsCopy, composeObj, groupObj)
+	if err != nil {
+		fmt.Println("Error when executing config:", err.Error())
 	}
 
 	parts := strings.Split(composeFile, "/")
@@ -354,7 +386,7 @@ func runCommand(args []string, confDir string, name string, composeFile string) 
 	case "exit":
 		os.Exit(0)
 	case "services":
-		arr := getServices()
+		arr := compose.GetServices(composeObj)
 		for _, s := range arr {
 			fmt.Println(s)
 		}
@@ -373,18 +405,7 @@ Docker Compose:`)
 	default:
 
 		if groupSupport {
-			for i, arg := range args {
-				services := groupObj["groups"]
-				for k, l := range services.(map[interface{}]interface{}) {
-					if arg == k {
-						args[i] = args[len(args)-1]
-						args = args[:len(args)-1]
-						for _, ss := range l.([]interface{}) {
-							args = append(args, ss.(string))
-						}
-					}
-				}
-			}
+			args = groups.GetGroupServices(args, groupObj)
 		}
 
 		execArgs := []string{"compose"}
@@ -469,26 +490,15 @@ func listProjects(confDir string, full bool) {
 
 }
 
-func getServices() []string {
-
-	services := composeObj["services"]
-	keys := make([]string, 0, 1)
-
-	for k, _ := range services.(map[interface{}]interface{}) {
-		keys = append(keys, k.(string))
-	}
-	sort.Strings(keys)
-
-	return keys
-}
-
 func readComposeFile(path string) {
 	yamlFile, err := ioutil.ReadFile(path)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	composeObj = make(map[string]interface{})
+	composeObj = compose.Compose{
+		Services: make(map[string]compose.Service),
+	}
 
 	err = yaml.Unmarshal(yamlFile, &composeObj)
 	if err != nil {
@@ -529,31 +539,60 @@ func findFile(dirUri string, fileName string) (string, error) {
 	return findFile(abs+"/..", fileName)
 }
 
-// Groups
-
-func getGroups(s []string) []string {
-	services := groupObj["groups"]
-
-	for k, _ := range services.(map[interface{}]interface{}) {
-		s = append(s, k.(string))
-	}
-
-	return s
-}
-
-func readGroupFile(path string) error {
-	yamlFile, err := ioutil.ReadFile(path)
+// Configs
+func runConfigs(path string, args []string, composeObj compose.Compose, groupObj *groups.Groups) error {
+	yamlFile, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
-	groupObj = make(map[string]interface{})
+	var config configs.Config
+	if err := yaml.Unmarshal(yamlFile, &config); err != nil {
+		return err
+	}
+
+	isPreStart := configs.IsPreStart(args)
+
+	// --- Process Pre-Start Actions ---
+	preStartActions := config.ActionConfig.PreStartActions
+	if isPreStart && len(preStartActions.Actions) > 0 && preStartActions.Enabled {
+		services := compose.GetFilteredServices(compose.GetServices(composeObj), preStartActions.Filter, []string{})
+		fmt.Println("Running pre-start actions...")
+		for _, service := range services {
+			err := configs.RunActions(preStartActions.Actions, config.ActionConfig.ActionTemplates, service, preStartActions.Verbose)
+			if err != nil {
+				return fmt.Errorf("Error running pre-start actions: %v", err)
+			}
+		}
+	}
+
+	// --- Process Integrations ---
+	zdapConfig := config.Integrations.Zdap
+	if isPreStart && len(zdapConfig.PreStartActions.Actions) > 0 && *zdapFlag || zdapConfig.PreStartActions.Enabled {
+		err := zdap.RunPreStartActions(&config, args, composeObj, groupObj)
+		if err != nil {
+			return fmt.Errorf("error running zdap integration: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func readGroupFile(path string) (*groups.Groups, error) {
+	yamlFile, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	groupObj := groups.Groups{
+		Groups: make(map[string][]string),
+	}
 
 	err = yaml.Unmarshal(yamlFile, &groupObj)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return &groupObj, nil
 }
 
 // Project names must contain only lowercase letters, decimal digits, dashes, and underscores, and
