@@ -325,8 +325,7 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 	load(name, confDir)
 
 	if len(*inargs) > 0 || *printComplete {
-		runCommand(*inargs, confDir, name, composeFile)
-		return
+		os.Exit(runCommand(*inargs, confDir, name, composeFile))
 	}
 
 	// Run REPL
@@ -352,7 +351,7 @@ complete -f -c dcr -a "(__fish_get_dcr_command)"`)
 	}
 }
 
-func runCommand(args []string, confDir string, name string, composeFile string) {
+func runCommand(args []string, confDir string, name string, composeFile string) int {
 
 	if *printComplete {
 		cpl := composeCompleter
@@ -364,12 +363,12 @@ func runCommand(args []string, confDir string, name string, composeFile string) 
 		for _, l := range newLine {
 			fmt.Println(strings.TrimSpace(string(l)))
 		}
-		return
+		return 0
 	}
 
 	switch args[0] {
 	case "":
-		return
+		return 0
 	case "alias":
 
 		if len(args) != 2 {
@@ -420,9 +419,13 @@ Docker Compose:`)
 		err := cmd.Run()
 		if err != nil {
 			fmt.Println("ERROR", err)
-			return
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				return exitErr.ExitCode()
+			}
+			return 1
 		}
 	}
+	return 0
 }
 
 func composeOverrideArgs(composeFile string) []string {
